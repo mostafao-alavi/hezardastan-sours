@@ -20,8 +20,8 @@ export interface CloudflareEnv {
   [key: string]: unknown;
 }
 
-export const INITIAL_SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS sources (
+export const SCHEMA_STATEMENTS = [
+  `CREATE TABLE IF NOT EXISTS sources (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     slug TEXT NOT NULL UNIQUE,
@@ -37,12 +37,10 @@ CREATE TABLE IF NOT EXISTS sources (
     articles_count INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_sources_slug ON sources(slug);
-CREATE INDEX IF NOT EXISTS idx_sources_is_active ON sources(is_active);
-
-CREATE TABLE IF NOT EXISTS articles (
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_sources_slug ON sources(slug)`,
+  `CREATE INDEX IF NOT EXISTS idx_sources_is_active ON sources(is_active)`,
+  `CREATE TABLE IF NOT EXISTS articles (
     id TEXT PRIMARY KEY,
     source_id TEXT NOT NULL,
     source_name TEXT NOT NULL,
@@ -66,20 +64,25 @@ CREATE TABLE IF NOT EXISTS articles (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_articles_source_id ON articles(source_id);
-CREATE INDEX IF NOT EXISTS idx_articles_url ON articles(url);
-CREATE INDEX IF NOT EXISTS idx_articles_processing_status ON articles(processing_status);
-CREATE INDEX IF NOT EXISTS idx_articles_discovered_at ON articles(discovered_at DESC);
-`;
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_articles_source_id ON articles(source_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_articles_url ON articles(url)`,
+  `CREATE INDEX IF NOT EXISTS idx_articles_processing_status ON articles(processing_status)`,
+  `CREATE INDEX IF NOT EXISTS idx_articles_discovered_at ON articles(discovered_at DESC)`
+];
 
 let isSchemaEnsured = false;
 
 export async function ensureSchema(db: D1Database): Promise<void> {
   if (isSchemaEnsured) return;
   try {
-    await db.exec(INITIAL_SCHEMA_SQL);
+    for (const sql of SCHEMA_STATEMENTS) {
+      try {
+        await db.prepare(sql).run();
+      } catch {
+        await db.exec(sql);
+      }
+    }
     isSchemaEnsured = true;
   } catch (error) {
     console.error('Failed to ensure D1 database schema:', error);
@@ -219,15 +222,24 @@ export async function fetchSources(db: D1Database | null): Promise<Source[]> {
     return process.env.NODE_ENV === 'production' ? [] : mockSources;
   }
 
-  try {
+  const querySources = async () => {
     const { results } = await db
       .prepare('SELECT * FROM sources ORDER BY created_at DESC')
       .all<SourceRow>();
-
     return (results || []).map(mapSourceRow);
+  };
+
+  try {
+    return await querySources();
   } catch (error) {
-    console.error('Failed to fetch sources from D1:', error);
-    return [];
+    console.warn('Sources query failed, ensuring schema and retrying:', error);
+    try {
+      await ensureSchema(db);
+      return await querySources();
+    } catch (retryError) {
+      console.error('Failed to fetch sources from D1 after schema ensure:', retryError);
+      return [];
+    }
   }
 }
 
@@ -419,7 +431,7 @@ export async function fetchArticles(
   const limit = options?.limit || 50;
   const offset = options?.offset || 0;
 
-  try {
+  const queryArticles = async () => {
     if (options?.sourceId) {
       const { results } = await db
         .prepare('SELECT * FROM articles WHERE source_id = ? ORDER BY published_at DESC LIMIT ? OFFSET ?')
@@ -435,8 +447,18 @@ export async function fetchArticles(
       .all<ArticleRow>();
 
     return (results || []).map(mapArticleRow);
+  };
+
+  try {
+    return await queryArticles();
   } catch (error) {
-    console.error('Failed to fetch articles from D1:', error);
-    return [];
+    console.warn('Articles query failed, ensuring schema and retrying:', error);
+    try {
+      await ensureSchema(db);
+      return await queryArticles();
+    } catch (retryError) {
+      console.error('Failed to fetch articles from D1 after schema ensure:', retryError);
+      return [];
+    }
   }
 }
