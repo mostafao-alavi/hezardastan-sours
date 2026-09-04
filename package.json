@@ -2,6 +2,10 @@
   "name": "ai-studio-applet",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "npm@10.9.8",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "NODE_ENV=production next build && NODE_ENV=production opennextjs-cloudflare build --skipNextBuild",
