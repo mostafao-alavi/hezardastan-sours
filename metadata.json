@@ -1,0 +1,6 @@
+{
+  "name": "هزار دستان",
+  "description": "پلتفرم جمع‌آوری و ذخیره‌سازی محتوای کامل وب (Hezar Dastan Web Content Collection Platform)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
