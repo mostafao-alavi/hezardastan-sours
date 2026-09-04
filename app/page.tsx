@@ -34,7 +34,12 @@ export default function HomePage() {
       const res = await fetch('/api/sources');
       if (!res.ok) throw new Error(`خطای سرور (${res.status})`);
       const data = await res.json();
-      setSources(Array.isArray(data.sources) ? data.sources : []);
+      const list = Array.isArray(data.data)
+        ? data.data
+        : Array.isArray(data.sources)
+        ? data.sources
+        : [];
+      setSources(list);
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : 'خطای نامشخص';
       setSourcesError(`خطا در دریافت منابع از D1: ${errorMsg}`);
@@ -51,7 +56,12 @@ export default function HomePage() {
       const res = await fetch('/api/articles');
       if (!res.ok) throw new Error(`خطای سرور (${res.status})`);
       const data = await res.json();
-      setArticles(Array.isArray(data.articles) ? data.articles : []);
+      const list = Array.isArray(data.data)
+        ? data.data
+        : Array.isArray(data.articles)
+        ? data.articles
+        : [];
+      setArticles(list);
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : 'خطای نامشخص';
       setArticlesError(`خطا در دریافت مقالات از D1: ${errorMsg}`);
@@ -77,20 +87,26 @@ export default function HomePage() {
 
         if (ignore) return;
 
-        if (
-          sourcesRes.status === 'fulfilled' &&
-          Array.isArray(sourcesRes.value?.sources)
-        ) {
-          setSources(sourcesRes.value.sources);
+        if (sourcesRes.status === 'fulfilled') {
+          const val = sourcesRes.value;
+          const list = Array.isArray(val?.data)
+            ? val.data
+            : Array.isArray(val?.sources)
+            ? val.sources
+            : [];
+          setSources(list);
         } else if (sourcesRes.status === 'rejected') {
           setSourcesError('خطا در دریافت منابع از پایگاه داده D1');
         }
 
-        if (
-          articlesRes.status === 'fulfilled' &&
-          Array.isArray(articlesRes.value?.articles)
-        ) {
-          setArticles(articlesRes.value.articles);
+        if (articlesRes.status === 'fulfilled') {
+          const val = articlesRes.value;
+          const list = Array.isArray(val?.data)
+            ? val.data
+            : Array.isArray(val?.articles)
+            ? val.articles
+            : [];
+          setArticles(list);
         } else if (articlesRes.status === 'rejected') {
           setArticlesError('خطا در دریافت مقالات از پایگاه داده D1');
         }
@@ -126,11 +142,12 @@ export default function HomePage() {
         throw new Error(data.error || 'خطا در تغییر وضعیت منبع در D1');
       }
 
-      if (data.source) {
+      const updatedSource = data.data || data.source;
+      if (updatedSource) {
         setSources((prev) =>
-          prev.map((s) => (s.id === id ? data.source : s))
+          prev.map((s) => (s.id === id ? updatedSource : s))
         );
-        showToast(`منبع «${data.source.name}» در D1 ${newActiveState ? 'فعال' : 'غیرفعال'} شد.`);
+        showToast(`منبع «${updatedSource.name}» در D1 ${newActiveState ? 'فعال' : 'غیرفعال'} شد.`);
       }
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : 'خطای نامشخص';
@@ -151,9 +168,10 @@ export default function HomePage() {
         throw new Error(data.error || 'خطا در افزودن منبع به D1');
       }
 
-      if (data.source) {
-        setSources((prev) => [data.source, ...prev]);
-        showToast(`منبع «${data.source.name}» با موفقیت در دیتابیس D1 ذخیره شد.`);
+      const createdSource = data.data || data.source;
+      if (createdSource) {
+        setSources((prev) => [createdSource, ...prev]);
+        showToast(`منبع «${createdSource.name}» با موفقیت در دیتابیس D1 ذخیره شد.`);
         return true;
       }
     } catch (err: unknown) {
@@ -175,11 +193,12 @@ export default function HomePage() {
         throw new Error(data.error || 'خطا در به‌روزرسانی منبع در D1');
       }
 
-      if (data.source) {
+      const updatedSource = data.data || data.source;
+      if (updatedSource) {
         setSources((prev) =>
-          prev.map((s) => (s.id === id ? data.source : s))
+          prev.map((s) => (s.id === id ? updatedSource : s))
         );
-        showToast(`منبع «${data.source.name}» با موفقیت در D1 به‌روزرسانی شد.`);
+        showToast(`منبع «${updatedSource.name}» با موفقیت در D1 به‌روزرسانی شد.`);
         return true;
       }
     } catch (err: unknown) {

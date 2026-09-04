@@ -10,6 +10,7 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       data: sources,
+      sources,
       count: sources.length,
     });
   } catch (error) {
@@ -66,6 +67,7 @@ export async function POST(request: Request) {
       {
         success: true,
         data: newSource,
+        source: newSource,
       },
       { status: 201 }
     );

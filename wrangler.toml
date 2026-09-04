@@ -12,3 +12,14 @@ binding = "ASSETS"
 binding = "DB"
 database_name = "hezar-dastan-test-db"
 database_id = "54954986-46df-4c71-ae2d-45b4f294d762"
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+persist = true
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 1
+persist = true

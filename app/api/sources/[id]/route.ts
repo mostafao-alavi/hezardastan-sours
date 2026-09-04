@@ -39,6 +39,7 @@ export async function PATCH(
     return NextResponse.json({
       success: true,
       data: updated,
+      source: updated,
     });
   } catch (error) {
     console.error('Failed to update source:', error);
