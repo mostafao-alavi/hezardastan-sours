@@ -1,0 +1,13 @@
+name = "hezar-dastan"
+main = ".open-next/worker.js"
+compatibility_date = "2026-08-04"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = ".open-next/assets"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hezar-dastan-test-db"
+database_id = "714ad6ec-5701-42e3-9f7d-5833a689a576"
