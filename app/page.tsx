@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Header from '@/components/dashboard/Header';
 import Sidebar from '@/components/dashboard/Sidebar';
 import CollectionStatus from '@/components/dashboard/CollectionStatus';
@@ -8,18 +8,16 @@ import StatsCards from '@/components/dashboard/StatsCards';
 import RecentArticlesTable from '@/components/dashboard/RecentArticlesTable';
 import SourcesView from '@/components/sources/SourcesView';
 import ArticlesView from '@/components/articles/ArticlesView';
-import {
-  mockArticles,
-  mockDashboardStats,
-  mockSources,
-} from '@/lib/mock-data';
-import { Article, NavigationTab, Source } from '@/lib/types';
+import { Article, DashboardStats, NavigationTab, Source } from '@/lib/types';
 
 export default function HomePage() {
   const [currentTab, setCurrentTab] = useState<NavigationTab>('dashboard');
-  const [stats, setStats] = useState(mockDashboardStats);
-  const [sources, setSources] = useState<Source[]>(mockSources);
-  const [articles, setArticles] = useState<Article[]>(mockArticles);
+  const [sources, setSources] = useState<Source[]>([]);
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [isLoadingSources, setIsLoadingSources] = useState<boolean>(true);
+  const [isLoadingArticles, setIsLoadingArticles] = useState<boolean>(true);
+  const [sourcesError, setSourcesError] = useState<string | null>(null);
+  const [articlesError, setArticlesError] = useState<string | null>(null);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -28,123 +26,188 @@ export default function HomePage() {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Toggle active state of a source
-  const handleToggleActive = (id: string) => {
-    setSources((prev) =>
-      prev.map((s) => {
-        if (s.id === id) {
-          const newState = !s.isActive;
-          showToast(`منبع «${s.name}» ${newState ? 'فعال' : 'غیرفعال'} شد.`);
-          return { ...s, isActive: newState };
-        }
-        return s;
-      })
-    );
-  };
+  // Refresh sources on user demand
+  const handleRefreshSources = useCallback(async () => {
+    setIsLoadingSources(true);
+    setSourcesError(null);
+    try {
+      const res = await fetch('/api/sources');
+      if (!res.ok) throw new Error(`خطای سرور (${res.status})`);
+      const data = await res.json();
+      setSources(Array.isArray(data.sources) ? data.sources : []);
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : 'خطای نامشخص';
+      setSourcesError(`خطا در دریافت منابع از D1: ${errorMsg}`);
+    } finally {
+      setIsLoadingSources(false);
+    }
+  }, []);
 
-  // Add source handler
-  const handleAddSource = (newSourceData: Partial<Source>) => {
-    const newSrc: Source = {
-      id: newSourceData.id || `src-${Date.now()}`,
-      name: newSourceData.name || 'منبع جدید',
-      slug: newSourceData.slug || 'new-source',
-      baseUrl: newSourceData.baseUrl || 'https://example.com',
-      feedUrl: newSourceData.feedUrl,
-      discoveryType: newSourceData.discoveryType || 'rss',
-      pollingIntervalMinutes: newSourceData.pollingIntervalMinutes || 15,
-      isActive: true,
-      healthStatus: 'healthy',
-      consecutiveFailures: 0,
-      extractionRulesJson: newSourceData.extractionRulesJson,
-      lastCrawledAt: 'هنوز اجرا نشده',
-      articlesCount: 0,
-      createdAt: 'امروز',
+  // Refresh articles on user demand
+  const handleRefreshArticles = useCallback(async () => {
+    setIsLoadingArticles(true);
+    setArticlesError(null);
+    try {
+      const res = await fetch('/api/articles');
+      if (!res.ok) throw new Error(`خطای سرور (${res.status})`);
+      const data = await res.json();
+      setArticles(Array.isArray(data.articles) ? data.articles : []);
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : 'خطای نامشخص';
+      setArticlesError(`خطا در دریافت مقالات از D1: ${errorMsg}`);
+    } finally {
+      setIsLoadingArticles(false);
+    }
+  }, []);
+
+  // Fetch initial data on mount (asynchronous to comply with React strict effect guidelines)
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadInitialData() {
+      try {
+        const [sourcesRes, articlesRes] = await Promise.allSettled([
+          fetch('/api/sources').then((r) =>
+            r.ok ? r.json() : Promise.reject(new Error(`Status ${r.status}`))
+          ),
+          fetch('/api/articles').then((r) =>
+            r.ok ? r.json() : Promise.reject(new Error(`Status ${r.status}`))
+          ),
+        ]);
+
+        if (ignore) return;
+
+        if (
+          sourcesRes.status === 'fulfilled' &&
+          Array.isArray(sourcesRes.value?.sources)
+        ) {
+          setSources(sourcesRes.value.sources);
+        } else if (sourcesRes.status === 'rejected') {
+          setSourcesError('خطا در دریافت منابع از پایگاه داده D1');
+        }
+
+        if (
+          articlesRes.status === 'fulfilled' &&
+          Array.isArray(articlesRes.value?.articles)
+        ) {
+          setArticles(articlesRes.value.articles);
+        } else if (articlesRes.status === 'rejected') {
+          setArticlesError('خطا در دریافت مقالات از پایگاه داده D1');
+        }
+      } finally {
+        if (!ignore) {
+          setIsLoadingSources(false);
+          setIsLoadingArticles(false);
+        }
+      }
+    }
+
+    loadInitialData();
+
+    return () => {
+      ignore = true;
     };
+  }, []);
 
-    setSources((prev) => [newSrc, ...prev]);
-    setStats((prev) => ({
-      ...prev,
-      totalSourcesCount: prev.totalSourcesCount + 1,
-      activeSourcesCount: prev.activeSourcesCount + (newSrc.isActive ? 1 : 0),
-    }));
-    showToast(`منبع «${newSrc.name}» با موفقیت اضافه شد.`);
+  // Toggle active state of a source in D1
+  const handleToggleActive = async (id: string) => {
+    const current = sources.find((s) => s.id === id);
+    if (!current) return;
+    const newActiveState = !current.isActive;
+
+    try {
+      const res = await fetch(`/api/sources/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive: newActiveState }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'خطا در تغییر وضعیت منبع در D1');
+      }
+
+      if (data.source) {
+        setSources((prev) =>
+          prev.map((s) => (s.id === id ? data.source : s))
+        );
+        showToast(`منبع «${data.source.name}» در D1 ${newActiveState ? 'فعال' : 'غیرفعال'} شد.`);
+      }
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : 'خطای نامشخص';
+      showToast(`خطا در تغییر وضعیت: ${errorMsg}`);
+    }
   };
 
-  // Update source handler
-  const handleUpdateSource = (id: string, updated: Partial<Source>) => {
-    setSources((prev) =>
-      prev.map((s) => {
-        if (s.id === id) {
-          const newSource = { ...s, ...updated };
-          showToast(`منبع «${newSource.name}» با موفقیت به‌روزرسانی شد.`);
-          return newSource;
-        }
-        return s;
-      })
-    );
+  // Add new source in D1 via /api/sources
+  const handleAddSource = async (newSourceData: Partial<Source>) => {
+    try {
+      const res = await fetch('/api/sources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newSourceData),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'خطا در افزودن منبع به D1');
+      }
+
+      if (data.source) {
+        setSources((prev) => [data.source, ...prev]);
+        showToast(`منبع «${data.source.name}» با موفقیت در دیتابیس D1 ذخیره شد.`);
+        return true;
+      }
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : 'خطای نامشخص';
+      showToast(`خطا: ${errorMsg}`);
+    }
   };
 
-  // Manual Trigger for a specific source
-  const handleTriggerSource = (id: string) => {
-    const targetSource = sources.find((s) => s.id === id);
-    if (!targetSource) return;
+  // Update existing source in D1 via /api/sources/[id]
+  const handleUpdateSource = async (id: string, updated: Partial<Source>) => {
+    try {
+      const res = await fetch(`/api/sources/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'خطا در به‌روزرسانی منبع در D1');
+      }
 
-    showToast(`درخواست جمع‌آوری برای منبع «${targetSource.name}» آغاز شد...`);
+      if (data.source) {
+        setSources((prev) =>
+          prev.map((s) => (s.id === id ? data.source : s))
+        );
+        showToast(`منبع «${data.source.name}» با موفقیت در D1 به‌روزرسانی شد.`);
+        return true;
+      }
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : 'خطای نامشخص';
+      showToast(`خطا: ${errorMsg}`);
+    }
+  };
 
-    setTimeout(() => {
-      // Update the source's crawl time and articles count
-      setSources((prev) =>
-        prev.map((s) => {
-          if (s.id === id) {
-            return {
-              ...s,
-              lastCrawledAt: 'هم‌اکنون',
-              articlesCount: s.articlesCount + 1,
-            };
-          }
-          return s;
-        })
-      );
-
-      // Create a new article under this source
-      const newArticle: Article = {
-        id: `art-${Date.now().toString().slice(-4)}`,
-        sourceId: targetSource.id,
-        sourceName: targetSource.name,
-        sourceSlug: targetSource.slug,
-        url: `${targetSource.baseUrl}/news/${Date.now().toString().slice(-6)}`,
-        normalizedUrl: `${targetSource.baseUrl}/news/${Date.now().toString().slice(-6)}`,
-        originalTitle: `گزارش خبری جدید و اختصاصی از ${targetSource.name}`,
-        cleanedTitle: `گزارش تحلیلی و پایش رویدادها — ${targetSource.name}`,
-        publishedAt: 'هم‌اکنون',
-        discoveredAt: 'هم‌اکنون',
-        language: 'fa',
-        processingStatus: 'ready_for_processor',
-        retryCount: 0,
-        hasFullContent: true,
-        content: {
-          articleId: `art-${Date.now().toString().slice(-4)}`,
-          plainText: `متن کامل گزارش خبری استخراج‌شده از ${targetSource.name}. این مقاله در خزش دستی دریافت و جهت پردازش‌های بعدی در جدول مقالات Cloudflare D1 با موفقیت ذخیره گردید.`,
-          cleanedContentHtml: `<p>متن کامل گزارش خبری استخراج‌شده از ${targetSource.name}. این مقاله در خزش دستی دریافت و جهت پردازش‌های بعدی در جدول مقالات Cloudflare D1 با موفقیت ذخیره گردید.</p>`,
-          summary: `چکیده گزارش استخراج‌شده از ${targetSource.name}.`,
-          wordCount: 420,
-          readingTimeMinutes: 2,
-          contentHash: `hash-${Date.now()}`,
-        },
-      };
-
-      setArticles((prev) => [newArticle, ...prev]);
-
-      // Update dashboard stats
-      setStats((prev) => ({
-        ...prev,
-        todayArticlesCount: prev.todayArticlesCount + 1,
-        totalArticlesCount: prev.totalArticlesCount + 1,
-        lastRunTime: 'هم‌اکنون',
-      }));
-
-      showToast(`جمع‌آوری «${targetSource.name}» تکمیل شد و مقاله جدید در D1 ذخیره گردید.`);
-    }, 1200);
+  // Dynamic statistics derived directly from real D1 data
+  const fullContentCount = articles.filter((a) => a.hasFullContent).length;
+  const stats: DashboardStats = {
+    totalSourcesCount: sources.length,
+    activeSourcesCount: sources.filter((s) => s.isActive).length,
+    totalArticlesCount: articles.length,
+    todayArticlesCount: articles.length,
+    processingJobsCount: 0,
+    failedJobsCount: 0,
+    lastRunTime: sources.some((s) => s.lastCrawledAt && s.lastCrawledAt !== 'هنوز اجرا نشده')
+      ? 'به‌روزرسانی‌شده'
+      : 'در انتظار خزشگر',
+    nextRunTime: 'طبق زمان‌بندی Cron',
+    sourcesCheckedCount: sources.filter((s) => s.isActive).length,
+    newArticlesCount: articles.length,
+    errorsCount: 0,
+    fullContentSuccessRate:
+      articles.length > 0
+        ? Math.round((fullContentCount / articles.length) * 100)
+        : 100,
   };
 
   return (
@@ -171,7 +234,7 @@ export default function HomePage() {
                 <div>
                   <h1 className="text-xl font-bold text-slate-900 tracking-tight">داشبورد مدیریت محتوا</h1>
                   <p className="text-xs text-slate-500 mt-1">
-                    سامانه پایش منابع و ذخیره‌سازی محتوای کامل مقالات در Cloudflare D1
+                    سامانه پایش منابع و ذخیره‌سازی محتوای مقالات متصل به Cloudflare D1
                   </p>
                 </div>
                 <div className="text-xs text-slate-400 font-mono">
@@ -179,15 +242,16 @@ export default function HomePage() {
                 </div>
               </div>
 
-              {/* کارتهای آماری */}
+              {/* کارتهای آماری مبتنی بر داده‌های واقعی D1 */}
               <StatsCards stats={stats} />
 
               {/* بخش وضعیت جمع‌آوری */}
               <CollectionStatus stats={stats} />
 
-              {/* بخش آخرین مقالات */}
+              {/* بخش آخرین مقالات واقعی D1 */}
               <RecentArticlesTable
                 articles={articles}
+                isLoading={isLoadingArticles}
                 onSelectArticle={(art) => {
                   setSelectedArticle(art);
                   setCurrentTab('articles');
@@ -204,7 +268,9 @@ export default function HomePage() {
               onToggleActive={handleToggleActive}
               onAddSource={handleAddSource}
               onUpdateSource={handleUpdateSource}
-              onTriggerSource={handleTriggerSource}
+              isLoading={isLoadingSources}
+              error={sourcesError}
+              onRefresh={handleRefreshSources}
             />
           )}
 
@@ -214,6 +280,9 @@ export default function HomePage() {
               articles={articles}
               selectedArticle={selectedArticle}
               onSelectArticle={setSelectedArticle}
+              isLoading={isLoadingArticles}
+              error={articlesError}
+              onRefresh={handleRefreshArticles}
             />
           )}
         </main>

@@ -13,6 +13,7 @@ import {
   Image as ImageIcon,
   Info,
   Link2,
+  RefreshCw,
   Search,
   User,
   X,
@@ -25,12 +26,18 @@ interface ArticlesViewProps {
   articles: Article[];
   selectedArticle: Article | null;
   onSelectArticle: (article: Article | null) => void;
+  isLoading?: boolean;
+  error?: string | null;
+  onRefresh?: () => void;
 }
 
 export default function ArticlesView({
   articles,
   selectedArticle,
   onSelectArticle,
+  isLoading = false,
+  error = null,
+  onRefresh,
 }: ArticlesViewProps) {
   // Simple Filters
   const [searchTitle, setSearchTitle] = useState('');
@@ -86,6 +93,17 @@ export default function ArticlesView({
         </div>
 
         <div className="flex items-center gap-2 text-xs">
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              disabled={isLoading}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-700 hover:bg-slate-50 transition shadow-2xs disabled:opacity-60 cursor-pointer"
+              title="بارگذاری مجدد مقالات از D1"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin text-indigo-600' : 'text-slate-500'}`} />
+              <span>تازه‌سازی D1</span>
+            </button>
+          )}
           <span className="rounded-lg bg-emerald-50 px-3 py-1.5 font-semibold text-emerald-700 border border-emerald-200">
             {articles.filter((a) => a.hasFullContent).length.toLocaleString('fa-IR')} مقاله با متن کامل
           </span>
@@ -94,6 +112,24 @@ export default function ArticlesView({
           </span>
         </div>
       </div>
+
+      {/* Error Banner */}
+      {error && (
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-xs text-rose-800">
+          <div className="flex items-center gap-2">
+            <XCircle className="h-4 w-4 text-rose-600 shrink-0" />
+            <span>{error}</span>
+          </div>
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              className="rounded-lg bg-rose-600 px-3 py-1 text-xs font-medium text-white hover:bg-rose-700 transition cursor-pointer"
+            >
+              تلاش مجدد
+            </button>
+          )}
+        </div>
+      )}
 
       {/* فیلترهای ساده (عنوان، منبع، وضعیت) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs">
@@ -167,10 +203,31 @@ export default function ArticlesView({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
-              {filteredArticles.length === 0 ? (
+              {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="py-10 text-center text-slate-400">
-                    مقاله‌ای با فیلترهای مشخص‌شده یافت نشد.
+                  <td colSpan={6} className="py-12 text-center text-slate-500">
+                    <div className="flex items-center justify-center gap-2">
+                      <RefreshCw className="h-4 w-4 animate-spin text-indigo-600" />
+                      <span>در حال دریافت مقالات از پایگاه داده Cloudflare D1...</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : filteredArticles.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center text-slate-400">
+                    {articles.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center gap-1.5 py-4">
+                        <FileText className="h-8 w-8 text-slate-300" />
+                        <p className="text-xs font-semibold text-slate-700">
+                          هنوز هیچ مقاله‌ای در پایگاه داده D1 ثبت نشده است.
+                        </p>
+                        <p className="text-[11px] text-slate-400">
+                          پس از فعال‌سازی خزشگر در فاز بعدی، مقالات استخراج‌شده در اینجا ذخیره و نمایش داده خواهند شد.
+                        </p>
+                      </div>
+                    ) : (
+                      <span>مقاله‌ای با فیلترهای مشخص‌شده یافت نشد.</span>
+                    )}
                   </td>
                 </tr>
               ) : (

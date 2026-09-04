@@ -19,10 +19,13 @@ import { DiscoveryType, Source } from '@/lib/types';
 
 interface SourcesViewProps {
   sources: Source[];
-  onToggleActive: (id: string) => void;
-  onAddSource: (newSource: Partial<Source>) => void;
-  onUpdateSource?: (id: string, updated: Partial<Source>) => void;
-  onTriggerSource?: (id: string) => void;
+  onToggleActive: (id: string) => Promise<void> | void;
+  onAddSource: (newSource: Partial<Source>) => Promise<boolean | void> | void;
+  onUpdateSource?: (id: string, updated: Partial<Source>) => Promise<boolean | void> | void;
+  isLoading?: boolean;
+  error?: string | null;
+  onRefresh?: () => void;
+  isSubmitting?: boolean;
 }
 
 export default function SourcesView({
@@ -30,13 +33,16 @@ export default function SourcesView({
   onToggleActive,
   onAddSource,
   onUpdateSource,
-  onTriggerSource,
+  isLoading = false,
+  error = null,
+  onRefresh,
+  isSubmitting = false,
 }: SourcesViewProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSource, setEditingSource] = useState<Source | null>(null);
-  const [runningSourceId, setRunningSourceId] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   // Form State (strictly MVP fields)
   const [formName, setFormName] = useState('');
@@ -83,14 +89,13 @@ export default function SourcesView({
   };
 
   // Save (Add or Update)
-  const handleSubmitForm = (e: React.FormEvent) => {
+  const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim() || !formBaseUrl.trim()) return;
 
     if (editingSource) {
-      // Update existing
       if (onUpdateSource) {
-        onUpdateSource(editingSource.id, {
+        await onUpdateSource(editingSource.id, {
           name: formName.trim(),
           baseUrl: formBaseUrl.trim(),
           feedUrl: formFeedUrl.trim() || undefined,
@@ -99,8 +104,7 @@ export default function SourcesView({
         });
       }
     } else {
-      // Add new
-      onAddSource({
+      await onAddSource({
         name: formName.trim(),
         baseUrl: formBaseUrl.trim(),
         feedUrl: formFeedUrl.trim() || undefined,
@@ -112,16 +116,14 @@ export default function SourcesView({
     setIsModalOpen(false);
   };
 
-  // Manual Trigger for a single source
-  const handleTrigger = (id: string) => {
-    if (runningSourceId) return;
-    setRunningSourceId(id);
-    if (onTriggerSource) {
-      onTriggerSource(id);
+  const handleToggle = async (id: string) => {
+    if (togglingId) return;
+    setTogglingId(id);
+    try {
+      await onToggleActive(id);
+    } finally {
+      setTogglingId(null);
     }
-    setTimeout(() => {
-      setRunningSourceId(null);
-    }, 1500);
   };
 
   // Helper badge for discovery type
@@ -161,18 +163,51 @@ export default function SourcesView({
         <div>
           <h1 className="text-xl font-bold text-slate-900 tracking-tight">مدیریت منابع</h1>
           <p className="text-xs text-slate-500 mt-1">
-            سایت‌ها و فیدهای خبری هدف برای جمع‌آوری و استخراج خودکار مقالات
+            سایت‌ها و فیدهای خبری هدف ذخیره‌شده در پایگاه داده Cloudflare D1
           </p>
         </div>
 
-        <button
-          onClick={handleOpenAddModal}
-          className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white shadow-sm shadow-indigo-200 hover:bg-indigo-700 transition active:scale-98"
-        >
-          <Plus className="h-4 w-4" />
-          افزودن منبع
-        </button>
+        <div className="flex items-center gap-2">
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              disabled={isLoading}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition shadow-2xs disabled:opacity-60 cursor-pointer"
+              title="بارگذاری مجدد منابع از D1"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin text-indigo-600' : 'text-slate-500'}`} />
+              <span>تازه‌سازی D1</span>
+            </button>
+          )}
+
+          <button
+            onClick={handleOpenAddModal}
+            disabled={isSubmitting}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white shadow-sm shadow-indigo-200 hover:bg-indigo-700 transition active:scale-98 disabled:opacity-60 cursor-pointer"
+          >
+            <Plus className="h-4 w-4" />
+            افزودن منبع
+          </button>
+        </div>
       </div>
+
+      {/* Error Banner */}
+      {error && (
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-xs text-rose-800">
+          <div className="flex items-center gap-2">
+            <XCircle className="h-4 w-4 text-rose-600 shrink-0" />
+            <span>{error}</span>
+          </div>
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              className="rounded-lg bg-rose-600 px-3 py-1 text-xs font-medium text-white hover:bg-rose-700 transition cursor-pointer"
+            >
+              تلاش مجدد
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="flex flex-col sm:flex-row gap-3 items-center justify-between rounded-2xl border border-slate-200 bg-white p-3 shadow-xs">
@@ -220,15 +255,43 @@ export default function SourcesView({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
-              {filteredSources.length === 0 ? (
+              {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-400 text-xs">
-                    منبعی با مشخصات جستجو شده یافت نشد.
+                  <td colSpan={6} className="py-12 text-center text-slate-500 text-xs">
+                    <div className="flex items-center justify-center gap-2">
+                      <RefreshCw className="h-4 w-4 animate-spin text-indigo-600" />
+                      <span>در حال دریافت منابع از پایگاه داده Cloudflare D1...</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : filteredSources.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center">
+                    {sources.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <Globe className="h-8 w-8 text-slate-300" />
+                        <p className="text-xs font-semibold text-slate-700">
+                          هیچ منبعی در پایگاه داده D1 ثبت نشده است.
+                        </p>
+                        <p className="text-[11px] text-slate-400">
+                          با استفاده از دکمه «افزودن منبع» اولین منبع خبری را ثبت کنید.
+                        </p>
+                        <button
+                          onClick={handleOpenAddModal}
+                          className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 px-3 py-1.5 text-xs font-semibold hover:bg-indigo-100 transition cursor-pointer"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          افزودن منبع اول
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-slate-400 text-xs">منبعی با مشخصات جستجو شده یافت نشد.</span>
+                    )}
                   </td>
                 </tr>
               ) : (
                 filteredSources.map((source) => {
-                  const isRunning = runningSourceId === source.id;
+                  const isToggling = togglingId === source.id;
 
                   return (
                     <tr
@@ -287,54 +350,47 @@ export default function SourcesView({
                       {/* وضعیت فعال یا غیرفعال */}
                       <td className="py-3.5 px-4 whitespace-nowrap">
                         <button
-                          onClick={() => onToggleActive(source.id)}
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition cursor-pointer ${
+                          onClick={() => handleToggle(source.id)}
+                          disabled={isToggling}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition cursor-pointer disabled:opacity-60 ${
                             source.isActive
                               ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
                               : 'bg-slate-100 text-slate-500 border border-slate-200 hover:bg-slate-200'
                           }`}
-                          title="کلیک برای تغییر وضعیت فعال/غیرفعال"
+                          title="کلیک برای تغییر وضعیت فعال/غیرفعال در D1"
                         >
                           <span
                             className={`h-2 w-2 rounded-full ${
-                              source.isActive ? 'bg-emerald-500' : 'bg-slate-400'
+                              isToggling
+                                ? 'bg-amber-400 animate-pulse'
+                                : source.isActive
+                                ? 'bg-emerald-500'
+                                : 'bg-slate-400'
                             }`}
                           ></span>
-                          {source.isActive ? 'فعال' : 'غیرفعال'}
+                          {isToggling ? 'در حال ثبت...' : source.isActive ? 'فعال' : 'غیرفعال'}
                         </button>
                       </td>
 
-                      {/* عملیات: اجرای دستی جمع‌آوری + ویرایش + تغییر وضعیت */}
+                      {/* عملیات: اجرای دستی جمع‌آوری (فاز بعد) + ویرایش + تغییر وضعیت */}
                       <td className="py-3.5 px-4 text-center whitespace-nowrap">
                         <div className="flex items-center justify-center gap-1.5">
-                          {/* اجرای دستی جمع‌آوری */}
+                          {/* اجرای دستی جمع‌آوری - غیرفعال با توضیح فاز بعد */}
                           <button
-                            onClick={() => handleTrigger(source.id)}
-                            disabled={!source.isActive || isRunning}
-                            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
-                              isRunning
-                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                : source.isActive
-                                ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100'
-                                : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
-                            }`}
-                            title={
-                              source.isActive
-                                ? 'اجرای دستی جمع‌آوری برای این منبع'
-                                : 'منبع غیرفعال است'
-                            }
+                            type="button"
+                            disabled
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-80"
+                            title="موتور خزش و جمع‌آوری خودکار در فاز بعدی فعال می‌شود"
                           >
-                            <RefreshCw
-                              className={`h-3.5 w-3.5 ${isRunning ? 'animate-spin' : ''}`}
-                            />
-                            {isRunning ? 'در حال اجرا...' : 'اجرای جمع‌آوری'}
+                            <RefreshCw className="h-3.5 w-3.5 text-slate-400" />
+                            <span>اجرای جمع‌آوری (فاز بعد)</span>
                           </button>
 
                           {/* ویرایش منبع */}
                           <button
                             onClick={() => handleOpenEditModal(source)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 text-xs font-medium transition"
-                            title="ویرایش اطلاعات منبع"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 text-xs font-medium transition cursor-pointer"
+                            title="ویرایش اطلاعات منبع در D1"
                           >
                             <Pencil className="h-3.5 w-3.5 text-slate-500" />
                             ویرایش
@@ -342,13 +398,14 @@ export default function SourcesView({
 
                           {/* فعال / غیرفعال کردن سریع */}
                           <button
-                            onClick={() => onToggleActive(source.id)}
-                            className={`p-1.5 rounded-lg border transition ${
+                            onClick={() => handleToggle(source.id)}
+                            disabled={isToggling}
+                            className={`p-1.5 rounded-lg border transition cursor-pointer disabled:opacity-60 ${
                               source.isActive
                                 ? 'border-slate-200 bg-white text-slate-500 hover:text-rose-600 hover:border-rose-200'
                                 : 'border-slate-200 bg-white text-slate-400 hover:text-emerald-600 hover:border-emerald-200'
                             }`}
-                            title={source.isActive ? 'غیرفعال‌سازی' : 'فعال‌سازی'}
+                            title={source.isActive ? 'غیرفعال‌سازی در D1' : 'فعال‌سازی در D1'}
                           >
                             <Power className="h-3.5 w-3.5" />
                           </button>

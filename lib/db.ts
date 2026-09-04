@@ -148,7 +148,7 @@ export function mapArticleRow(row: ArticleRow): Article {
 
 export async function fetchSources(db: D1Database | null): Promise<Source[]> {
   if (!db) {
-    return mockSources;
+    return process.env.NODE_ENV === 'production' ? [] : mockSources;
   }
 
   try {
@@ -156,14 +156,10 @@ export async function fetchSources(db: D1Database | null): Promise<Source[]> {
       .prepare('SELECT * FROM sources ORDER BY created_at DESC')
       .all<SourceRow>();
 
-    if (!results || results.length === 0) {
-      return mockSources;
-    }
-
-    return results.map(mapSourceRow);
+    return (results || []).map(mapSourceRow);
   } catch (error) {
-    console.warn('D1 fetchSources failed, falling back to mock data:', error);
-    return mockSources;
+    console.error('Failed to fetch sources from D1:', error);
+    return [];
   }
 }
 
@@ -173,7 +169,17 @@ export async function insertSource(
 ): Promise<Source> {
   const now = new Date().toISOString();
   const id = data.id || `src-${Date.now().toString(36)}`;
-  const slug = data.slug || data.name.toLowerCase().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
+
+  let slug = data.slug?.trim();
+  if (!slug) {
+    const transliterated = data.name
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_]+/g, '-')
+      .replace(/[^\p{L}\p{N}-]/gu, '');
+    slug = transliterated ? `${transliterated}-${Date.now().toString(36).slice(-4)}` : `src-${Date.now().toString(36)}`;
+  }
+
   const discoveryType = data.discoveryType || 'rss';
   const pollingIntervalMinutes = data.pollingIntervalMinutes || 15;
   const isActive = data.isActive !== undefined ? (data.isActive ? 1 : 0) : 1;
@@ -209,6 +215,15 @@ export async function insertSource(
         now
       )
       .run();
+
+    const inserted = await db
+      .prepare('SELECT * FROM sources WHERE id = ?')
+      .bind(id)
+      .first<SourceRow>();
+
+    if (inserted) {
+      return mapSourceRow(inserted);
+    }
   }
 
   return {
@@ -326,6 +341,7 @@ export async function fetchArticles(
   options?: { sourceId?: string; limit?: number; offset?: number }
 ): Promise<Article[]> {
   if (!db) {
+    if (process.env.NODE_ENV === 'production') return [];
     if (options?.sourceId) {
       return mockArticles.filter((a) => a.sourceId === options.sourceId);
     }
@@ -342,10 +358,7 @@ export async function fetchArticles(
         .bind(options.sourceId, limit, offset)
         .all<ArticleRow>();
 
-      if (!results || results.length === 0) {
-        return mockArticles.filter((a) => a.sourceId === options.sourceId);
-      }
-      return results.map(mapArticleRow);
+      return (results || []).map(mapArticleRow);
     }
 
     const { results } = await db
@@ -353,16 +366,9 @@ export async function fetchArticles(
       .bind(limit, offset)
       .all<ArticleRow>();
 
-    if (!results || results.length === 0) {
-      return mockArticles;
-    }
-
-    return results.map(mapArticleRow);
+    return (results || []).map(mapArticleRow);
   } catch (error) {
-    console.warn('D1 fetchArticles failed, falling back to mock data:', error);
-    if (options?.sourceId) {
-      return mockArticles.filter((a) => a.sourceId === options.sourceId);
-    }
-    return mockArticles;
+    console.error('Failed to fetch articles from D1:', error);
+    return [];
   }
 }
